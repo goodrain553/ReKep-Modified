@@ -4,6 +4,7 @@ import copy
 from scipy.optimize import dual_annealing, minimize
 from scipy.interpolate import RegularGridInterpolator
 import transform_utils as T
+import torch
 from utils import (
     transform_keypoints,
     calculate_collision_cost,
@@ -57,6 +58,7 @@ def objective(opt_vars,
     debug_dict['ik_cost'] = ik_cost
     cost += ik_cost
     if ik_result.success:
+        reset_joint_pos = reset_joint_pos.detach().cpu().numpy() if torch.is_tensor(reset_joint_pos) else reset_joint_pos
         reset_reg = np.linalg.norm(ik_result.cspace_position[:-1] - reset_joint_pos[:-1])
         reset_reg = np.clip(reset_reg, 0.0, 3.0)
     else:

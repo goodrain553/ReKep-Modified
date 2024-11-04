@@ -22,6 +22,8 @@ from utils import (
 )
 from omnigibson.robots.manipulation_robot import ManipulationRobot
 from omnigibson.controllers.controller_base import ControlType, BaseController
+import torch
+
 
 # Don't use GPU dynamics and use flatcache for performance boost
 gm.USE_GPU_DYNAMICS = True
@@ -74,8 +76,9 @@ class ReKepOGEnv:
         dof_idx = np.concatenate([self.robot.trunk_control_idx,
                                   self.robot.arm_control_idx[self.robot.default_arm]])
         self.reset_joint_pos = self.robot.reset_joint_pos[dof_idx]
+        # my modification
         self.world2robot_homo = T.pose_inv(T.pose2mat(self.robot.get_position_orientation()))
-        # initialize cameras
+        # initialize camerast
         self._initialize_cameras(self.config['camera'])
         self.last_og_gripper_action = 1.0
 
@@ -424,6 +427,8 @@ class ReKepOGEnv:
             save_path = os.path.join(save_dir, f'{datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")}.mp4')
         video_writer = imageio.get_writer(save_path, fps=30)
         for rgb in self.video_cache:
+            if not isinstance(rgb, np.ndarray):
+                rgb = np.array(rgb)
             video_writer.append_data(rgb)
         video_writer.close()
         return save_path
@@ -440,6 +445,8 @@ class ReKepOGEnv:
         current_rotmat = T.quat2mat(current_xyzw)
         target_rotmat = T.quat2mat(target_xyzw)
         # calculate position delta
+        if torch.is_tensor(current_pos):
+            current_pos = current_pos.detach().cpu().numpy()
         pos_diff = (target_pos - current_pos).flatten()
         pos_error = np.linalg.norm(pos_diff)
         # calculate rotation delta
@@ -465,7 +472,10 @@ class ReKepOGEnv:
             # convert world pose to robot pose
             target_pose_robot = np.dot(self.world2robot_homo, T.convert_pose_quat2mat(target_pose_world))
             # convert to relative pose to be used with the underlying controller
-            relative_position = target_pose_robot[:3, 3] - self.robot.get_relative_eef_position()
+            self.relative_eef_position = self.robot.get_relative_eef_position()
+            if torch.is_tensor(self.relative_eef_position):
+                self.relative_eef_position = self.relative_eef_position.detach().cpu().numpy()
+            relative_position = target_pose_robot[:3, 3] - self.relative_eef_position
             relative_quat = T.quat_distance(T.mat2quat(target_pose_robot[:3, :3]), self.robot.get_relative_eef_orientation())
             assert isinstance(self.robot, Fetch), "this action space is only for fetch"
             action = np.zeros(12)  # first 3 are base, which we don't use
